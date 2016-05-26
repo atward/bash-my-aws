@@ -1,0 +1,117 @@
+#!/bin/bash
+#
+# Elasticbeanstalk functions
+# eb-functions
+
+source $(dirname ${BASH_SOURCE[0]})/shared.inc
+
+eb-apps() {
+  local inputs=$(__bma_read_inputs $@)
+  local output=$(__bma_read_switches $inputs | grep ^--output | cut -d\  -f2-)
+  local query='
+    Applications[][
+      {
+          "AppName": ApplicationName,
+          "Description": Description
+      }
+    ]
+  '
+
+  aws elasticbeanstalk describe-applications \
+    --query "${query}" \
+    --output ${output:-"text"}
+}
+
+eb-app-versions() {
+  # type: query
+
+  local inputs=$(__bma_read_inputs $@)
+  local output=$(__bma_read_switches $inputs | grep ^--output | cut -d\  -f2-)
+  local query='
+    ApplicationVersions[][
+      {
+          "AppVersion": VersionLabel,
+          "Name": ApplicationName,
+          "Status": Status
+      }
+    ]
+  '
+  aws elasticbeanstalk describe-application-versions \
+    --query "${query}" \
+    --output ${output:-"text"}
+}
+
+eb-envs() {
+  # type: query
+
+  local inputs=$(__bma_read_inputs $@)
+  local output=$(__bma_read_switches $inputs | grep ^--output | cut -d\  -f2-)
+  local query='
+    Environments[][
+      {
+          "EnvironmentId": EnvironmentId,
+          "EnvironmentName": EnvironmentName,
+          "EnvironmentVersion": VersionLabel,
+          "URL": EndpointURL,
+          "Health": Health,
+          "HealthStatus": HealthStatus,
+          "Status": Status
+      }
+    ]
+  '
+  aws elasticbeanstalk describe-environments \
+    --query "${query}" \
+    --output ${output:-"text"}
+}
+
+eb-templates() {
+  local inputs=$(__bma_read_inputs $@)
+  local apps=$(__bma_read_resources $inputs)
+  [[ -z "$apps" ]] && __bma_usage "application-name" && return 1
+  local output=$(__bma_read_switches $inputs | grep ^--output | cut -d\  -f2-)
+  local query='Applications[].ConfigurationTemplates[][{"t":@}]'
+
+  aws elasticbeanstalk describe-applications \
+    --application-names $apps \
+    --query "${query}" \
+    --output ${output:-"text"}
+}
+
+eb-env-settings() {
+ :
+ # $1 = app name
+ # $2- = env name
+}
+# TODO: abstract into _eb-desc-settings()
+eb-template-settings() {
+  # $1 = app name
+  # $2- = templ name
+  local inputs=$(__bma_read_inputs $@)
+  local output=$(__bma_read_switches $inputs | grep ^--output | cut -d\  -f2-)
+
+  if [[ $(__bma_read_resources ${inputs} | wc -l) -lt 2 ]]; then
+    __bma_usage "app-name template-name"
+    return 1
+  fi
+
+  local query='
+    ConfigurationSettings[].OptionSettings[][
+      {
+        "Namespace": Namespace,
+        "OptionName": OptionName,
+        "Value": Value
+      }
+    ][]
+  '
+  local flat_args=$(echo $(__bma_read_resources ${inputs}))
+  local app=${flat_args%% *}
+  local templates=${flat_args#* }
+
+  for templ in $templates; do
+    aws elasticbeanstalk describe-configuration-settings \
+      --application-name "$app" \
+      --template-name "$templ" \
+      --query "${query}" \
+      --output ${output:-"text"}
+  done
+}
